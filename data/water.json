@@ -1,0 +1,31 @@
+[
+  {
+    "type": "river",
+    "name": "River X",
+    "lat": 39.972,
+    "lng": 46.911,
+    "drought_risk": "medium"
+  },
+  {
+    "type": "spring",
+    "name": "Spring A",
+    "lat": 39.988,
+    "lng": 46.918,
+    "drought_risk": "low"
+  },
+  {
+    "type": "river",
+    "name": "River Y",
+    "lat": 39.965,
+    "lng": 46.920,
+    "drought_risk": "high"
+  },
+  {
+    "type": "well",
+    "name": "Well Site 1",
+    "lat": 39.978,
+    "lng": 46.908,
+    "drought_risk": "medium"
+  }
+]
+

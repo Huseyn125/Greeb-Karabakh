@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Forest Zone A",
+    "lat": 39.994,
+    "lng": 46.923,
+    "area": 120,
+    "soil": "fertile",
+    "water_nearby": true
+  },
+  {
+    "name": "Forest Zone B",
+    "lat": 39.975,
+    "lng": 46.915,
+    "area": 85,
+    "soil": "moderate",
+    "water_nearby": true
+  },
+  {
+    "name": "Forest Zone C",
+    "lat": 39.985,
+    "lng": 46.905,
+    "area": 150,
+    "soil": "fertile",
+    "water_nearby": false
+  }
+]
+

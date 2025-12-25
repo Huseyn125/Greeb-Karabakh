@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Solar Zone 1",
+    "lat": 39.981,
+    "lng": 46.902,
+    "sun_days": 270,
+    "distance_to_grid": 4
+  },
+  {
+    "name": "Solar Zone 2",
+    "lat": 39.972,
+    "lng": 46.925,
+    "sun_days": 285,
+    "distance_to_grid": 2
+  },
+  {
+    "name": "Solar Zone 3",
+    "lat": 39.990,
+    "lng": 46.910,
+    "sun_days": 265,
+    "distance_to_grid": 5
+  }
+]
+

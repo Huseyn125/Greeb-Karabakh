@@ -1,0 +1,24 @@
+[
+  {
+    "type": "mine",
+    "lat": 39.988,
+    "lng": 46.932,
+    "danger_level": "high",
+    "description": "Mine-contaminated area - requires clearance"
+  },
+  {
+    "type": "mine",
+    "lat": 39.970,
+    "lng": 46.900,
+    "danger_level": "high",
+    "description": "Mine-contaminated area - requires clearance"
+  },
+  {
+    "type": "contamination",
+    "lat": 39.980,
+    "lng": 46.930,
+    "danger_level": "medium",
+    "description": "Environmental contamination zone"
+  }
+]
+
