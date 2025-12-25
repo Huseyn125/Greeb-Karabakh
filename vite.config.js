@@ -11,7 +11,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: './index-react.html'
+        main: './index.html'
       }
     }
   }
