@@ -1,6 +1,6 @@
 .map-type-selector {
   position: absolute;
-  top: 1.5rem;
+  top: calc(64px + 2rem + 1.5rem);
   right: 1.5rem;
   display: flex;
   gap: 0.5rem;
