@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
-import { MapContainer as LeafletMap, TileLayer, Circle, Marker, Popup, useMapEvents, useMap } from 'react-leaflet'
+import { MapContainer as LeafletMap, TileLayer, Circle, Marker, Polyline, Tooltip, Popup, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import ZoomControls from './ZoomControls'
+import Icon, { ICON_COLORS, markerHtml } from './Icon'
 
 // Map type configurations
 const mapTypeConfigs = {
@@ -40,7 +41,16 @@ function MapClickHandler({ onMapClick, checkpointMode }) {
   return null
 }
 
-const MapContainer = forwardRef(({ 
+// Stores the Leaflet map instance in a ref owned by the parent component
+function MapInstance({ instanceRef }) {
+  const map = useMap()
+  useEffect(() => {
+    instanceRef.current = map
+  }, [map, instanceRef])
+  return null
+}
+
+const MapContainer = forwardRef(({
   regionData, 
   forestsData, 
   solarData, 
@@ -75,15 +85,6 @@ const MapContainer = forwardRef(({
     }
   }))
 
-  // Get map instance
-  function MapInstance() {
-    const map = useMap()
-    useEffect(() => {
-      mapInstanceRef.current = map
-    }, [map])
-    return null
-  }
-
   const getDroughtRiskColor = (risk) => {
     switch(risk) {
       case 'low': return '#3b82f6'
@@ -95,15 +96,17 @@ const MapContainer = forwardRef(({
 
   const getCheckpointIcon = (type) => {
     const icons = {
-      'forest': '🌱',
-      'solar': '☀️',
-      'risk': '⚠️',
-      'note': '📝'
+      'forest': ['sprout', ICON_COLORS.forest],
+      'solar': ['solar', ICON_COLORS.solar],
+      'risk': ['risk', ICON_COLORS.risk],
+      'note': ['note', '#6366f1']
     }
+    const [name, color] = icons[type] || ['pin', ICON_COLORS.pin]
     return L.divIcon({
       className: 'checkpoint-marker',
-      html: `<div style="font-size: 24px;">${icons[type] || '📍'}</div>`,
-      iconSize: [30, 30]
+      html: markerHtml(name, color, 32),
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
     })
   }
 
@@ -131,7 +134,7 @@ const MapContainer = forwardRef(({
       
       {checkpointMode && <MapClickHandler onMapClick={onMapClick} checkpointMode={checkpointMode} />}
       
-      <MapInstance />
+      <MapInstance instanceRef={mapInstanceRef} />
       <ZoomControls />
 
       {/* Forest Zones */}
@@ -161,8 +164,9 @@ const MapContainer = forwardRef(({
       {layers.solar && solarData.map((zone, idx) => {
         const icon = L.divIcon({
           className: 'solar-icon',
-          html: '<div style="font-size: 24px;">☀️</div>',
-          iconSize: [30, 30]
+          html: markerHtml('solar', ICON_COLORS.solar, 32),
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
         })
         return (
           <Marker
@@ -186,8 +190,9 @@ const MapContainer = forwardRef(({
         const color = getDroughtRiskColor(resource.drought_risk)
         const icon = L.divIcon({
           className: 'water-icon',
-          html: `<div style="font-size: 20px; color: ${color};">💧</div>`,
-          iconSize: [25, 25]
+          html: markerHtml('water', color, 28),
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
         })
         return (
           <Marker
@@ -211,8 +216,9 @@ const MapContainer = forwardRef(({
       {layers.risks && risksData.map((risk, idx) => {
         const icon = L.divIcon({
           className: 'risk-icon',
-          html: '<div style="font-size: 24px; color: #ef4444;">⚠️</div>',
-          iconSize: [30, 30]
+          html: markerHtml('risk', ICON_COLORS.risk, 32),
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
         })
         return (
           <React.Fragment key={`risk-${idx}`}>
@@ -237,7 +243,7 @@ const MapContainer = forwardRef(({
               }}
             >
               <Popup>
-                <b>⚠️ {risk.type.toUpperCase()}</b><br />
+                <b>{risk.type.toUpperCase()}</b><br />
                 Danger Level: {risk.danger_level}
               </Popup>
             </Marker>
@@ -252,28 +258,41 @@ const MapContainer = forwardRef(({
             position={[userLocation.lat, userLocation.lng]}
             icon={L.divIcon({
               className: 'user-location-marker',
-              html: '<div style="font-size: 24px; color: #3b82f6;">📍</div>',
-              iconSize: [30, 30]
+              html: markerHtml('locate', '#2563eb', 30),
+              iconSize: [30, 30],
+              iconAnchor: [15, 15]
             })}
           >
             <Popup>
-              <b>📍 Your Location</b><br />
+              <b>Your Location</b><br />
               Lat: {userLocation.lat.toFixed(6)}<br />
               Lng: {userLocation.lng.toFixed(6)}
             </Popup>
           </Marker>
-          {/* Check radius circle (100m) */}
+          {/* Check radius circle (100m) - turns red when a risk is inside */}
           <Circle
             center={[userLocation.lat, userLocation.lng]}
             radius={100}
             pathOptions={{
-              color: '#3b82f6',
-              fillColor: '#3b82f6',
-              fillOpacity: 0.1,
+              color: nearbyRisks.length ? '#ef4444' : '#3b82f6',
+              fillColor: nearbyRisks.length ? '#ef4444' : '#3b82f6',
+              fillOpacity: nearbyRisks.length ? 0.15 : 0.1,
               weight: 2,
               dashArray: '10, 5'
             }}
           />
+          {/* Lines from the user to each risk inside the radius */}
+          {nearbyRisks.map((risk, idx) => (
+            <Polyline
+              key={`risk-line-${idx}`}
+              positions={[[userLocation.lat, userLocation.lng], [risk.lat, risk.lng]]}
+              pathOptions={{ color: '#ef4444', weight: 2, dashArray: '4, 6' }}
+            >
+              <Tooltip permanent direction="center" className="distance-tooltip">
+                {Math.round(risk.distance)} m
+              </Tooltip>
+            </Polyline>
+          ))}
         </>
       )}
 
@@ -294,12 +313,13 @@ const MapContainer = forwardRef(({
             position={[risk.lat, risk.lng]}
             icon={L.divIcon({
               className: 'nearby-risk-marker',
-              html: '<div style="font-size: 28px; color: #ef4444; filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.8));">⚠️</div>',
-              iconSize: [35, 35]
+              html: markerHtml('risk', ICON_COLORS.risk, 38).replace('map-pin', 'map-pin pulse'),
+              iconSize: [38, 38],
+              iconAnchor: [19, 19]
             })}
           >
             <Popup>
-              <b>⚠️ {risk.type.toUpperCase()}</b><br />
+              <b>{risk.type.toUpperCase()}</b><br />
               Danger Level: <strong style={{ color: '#ef4444' }}>{risk.danger_level}</strong><br />
               Distance: <strong>{(risk.distance).toFixed(0)}m</strong><br />
               {risk.description && (
@@ -382,7 +402,7 @@ const MapContainer = forwardRef(({
                       e.target.style.boxShadow = 'none'
                     }}
                   >
-                    🗑️ Delete
+                    <Icon name="trash" size={16} /> Delete
                   </button>
                 </div>
               )}

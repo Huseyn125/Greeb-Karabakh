@@ -1,13 +1,31 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import Icon from './components/Icon'
 import MapContainer from './components/MapContainer'
 import LayerControls from './components/LayerControls'
 import InfoPanel from './components/InfoPanel'
 import CheckpointModal from './components/CheckpointModal'
 import MapTypeSelector from './components/MapTypeSelector'
+import Toast from './components/Toast'
+import Legend from './components/Legend'
+import DistrictDashboard from './components/DistrictDashboard'
+import CheckResult from './components/CheckResult'
+import { findRisksWithin } from './utils/geo'
 import { embeddedData } from './data/embeddedData'
 import { karabakhLocations } from './data/locations'
 import { cityZonesData, defaultZones } from './data/cityZones'
 import './App.css'
+
+const CHECKPOINTS_KEY = 'greenKarabakhCheckpoints'
+const CHECK_RADIUS_M = 100
+
+function loadCheckpoints() {
+  try {
+    const saved = localStorage.getItem(CHECKPOINTS_KEY)
+    return saved ? JSON.parse(saved) : []
+  } catch {
+    return []
+  }
+}
 
 function App() {
   const [layers, setLayers] = useState({
@@ -19,7 +37,7 @@ function App() {
   
   const [checkpointMode, setCheckpointMode] = useState(false)
   const [selectedZone, setSelectedZone] = useState(null)
-  const [checkpoints, setCheckpoints] = useState([])
+  const [checkpoints, setCheckpoints] = useState(loadCheckpoints)
   const [showModal, setShowModal] = useState(false)
   const [pendingCheckpoint, setPendingCheckpoint] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -35,24 +53,36 @@ function App() {
   const [mapType, setMapType] = useState('standard')
   const [userLocation, setUserLocation] = useState(null)
   const [isTrackingLocation, setIsTrackingLocation] = useState(false)
-  const [nearbyRisks, setNearbyRisks] = useState([])
+  const [checkActive, setCheckActive] = useState(false)
+  const [toasts, setToasts] = useState([])
+  const [layerPanelOpen, setLayerPanelOpen] = useState(true)
   const watchIdRef = useRef(null)
   const mapRef = useRef(null)
 
-  // Load checkpoints from localStorage
+  // Persist checkpoints (also when the list becomes empty)
   useEffect(() => {
-    const saved = localStorage.getItem('greenKarabakhCheckpoints')
-    if (saved) {
-      setCheckpoints(JSON.parse(saved))
-    }
-  }, [])
-
-  // Save checkpoints to localStorage
-  useEffect(() => {
-    if (checkpoints.length > 0) {
-      localStorage.setItem('greenKarabakhCheckpoints', JSON.stringify(checkpoints))
+    try {
+      localStorage.setItem(CHECKPOINTS_KEY, JSON.stringify(checkpoints))
+    } catch {
+      // storage unavailable (private mode / quota) - keep working in memory
     }
   }, [checkpoints])
+
+  const dismissToast = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  const notify = useCallback((type, title, message) => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev.slice(-2), { id, type, title, message }])
+    setTimeout(() => dismissToast(id), 4500)
+  }, [dismissToast])
+
+  // Risks near the user, recomputed live while checking
+  const nearbyRisks = useMemo(
+    () => (checkActive ? findRisksWithin(userLocation, filteredData.risks, CHECK_RADIUS_M) : []),
+    [checkActive, userLocation, filteredData.risks]
+  )
 
   const toggleLayer = (layerName) => {
     setLayers(prev => ({
@@ -62,7 +92,8 @@ function App() {
   }
 
   const handleZoneClick = (zone, type) => {
-    setSelectedZone({ ...zone, type })
+    // `kind` is the layer; `type` stays as the zone's own attribute (river, mine, ...)
+    setSelectedZone({ ...zone, kind: type })
   }
 
   const handleMapClick = (latlng) => {
@@ -82,6 +113,7 @@ function App() {
     setCheckpoints(prev => [...prev, newCheckpoint])
     setShowModal(false)
     setPendingCheckpoint(null)
+    notify('success', 'Checkpoint added', checkpointData.title)
   }
 
   const handleSearch = (query) => {
@@ -165,6 +197,7 @@ function App() {
       }
       setIsTrackingLocation(false)
       setUserLocation(null)
+      setCheckActive(false)
     } else {
       // Start tracking
       if (navigator.geolocation) {
@@ -185,7 +218,11 @@ function App() {
           },
           (error) => {
             console.error('Error getting location:', error)
-            alert('Unable to get your location. Please check your browser settings.')
+            notify('error', 'Location unavailable', 'Please allow location access in your browser settings.')
+            if (watchIdRef.current !== null) {
+              navigator.geolocation.clearWatch(watchIdRef.current)
+              watchIdRef.current = null
+            }
             setIsTrackingLocation(false)
           }
         )
@@ -206,55 +243,25 @@ function App() {
           }
         )
       } else {
-        alert('Geolocation is not supported by your browser.')
+        notify('error', 'Not supported', 'Geolocation is not supported by your browser.')
       }
     }
   }
 
-  // Calculate distance between two points (in km)
-  const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371 // Earth radius in km
-    const dLat = (lat2 - lat1) * Math.PI / 180
-    const dLng = (lng2 - lng1) * Math.PI / 180
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c
-  }
-
-  // Check for nearby risk zones
+  // Check for nearby risk zones; the result card then updates live
   const handleCheckAround = () => {
     if (!userLocation) return
+    // Risk data only exists for the selected district, so make sure it is visible
+    setLayers(prev => ({ ...prev, risks: true }))
+    setCheckActive(true)
 
-    const CHECK_RADIUS = 0.1 // 100 meters in km
-    const allRisks = filteredData.risks || []
-    const foundRisks = []
-
-    for (const risk of allRisks) {
-      const distance = calculateDistance(
-        userLocation.lat, 
-        userLocation.lng, 
-        risk.lat, 
-        risk.lng
-      )
-      
-      if (distance <= CHECK_RADIUS) {
-        foundRisks.push({
-          ...risk,
-          distance: distance * 1000 // Convert to meters
-        })
-      }
-    }
-
-    setNearbyRisks(foundRisks)
-
-    // Show result
-    if (foundRisks.length > 0) {
-      const riskTypes = foundRisks.map(r => r.type).join(', ')
-      alert(`⚠️ Warning: Found ${foundRisks.length} risk zone(s) within 100m:\n${riskTypes}\n\nCheck the map for details.`)
+    const found = findRisksWithin(userLocation, filteredData.risks, CHECK_RADIUS_M)
+    if (found.length > 0) {
+      notify('warning', `${found.length} risk zone(s) within ${CHECK_RADIUS_M} m`, 'Keep away from the highlighted areas.')
+    } else if ((filteredData.risks || []).length === 0) {
+      notify('info', 'No risk data here', 'Select a district to load its risk zones.')
     } else {
-      alert('✅ Safe: No risk zones detected within 100 meters.')
+      notify('success', 'Safe', `No known risk zones within ${CHECK_RADIUS_M} m.`)
     }
   }
 
@@ -293,34 +300,24 @@ function App() {
   }
 
   const handleDeleteCheckpoint = (checkpointId) => {
-    setCheckpoints(prev => {
-      const updated = prev.filter(cp => cp.id !== checkpointId)
-      // Update localStorage
-      if (updated.length > 0) {
-        localStorage.setItem('greenKarabakhCheckpoints', JSON.stringify(updated))
-      } else {
-        localStorage.removeItem('greenKarabakhCheckpoints')
-      }
-      return updated
-    })
+    setCheckpoints(prev => prev.filter(cp => cp.id !== checkpointId))
     if (selectedZone && selectedZone.id === checkpointId) {
       setSelectedZone(null)
     }
+    notify('info', 'Checkpoint deleted')
   }
 
   return (
     <div className="app">
       <header className="app-header">
         <div className="header-left">
-          <h1>🌿 EcoNexus</h1>
+          <h1><Icon name="logo" size={22} color="#16a34a" className="logo-icon" /> EcoNexus</h1>
           <p>Interactive Ecological Map</p>
         </div>
         <div className="header-center">
           <div className="search-container">
             <span className="search-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M11.7422 10.3439C12.5329 9.2673 13 7.9382 13 6.5C13 2.91015 10.0899 0 6.5 0C2.91015 0 0 2.91015 0 6.5C0 10.0899 2.91015 13 6.5 13C7.93858 13 9.26801 12.5327 10.3448 11.7415L10.3439 11.7422C10.3734 11.7822 10.4062 11.8200 10.4424 11.8554L14.2929 15.7071C14.6834 16.0976 15.3166 16.0976 15.7071 15.7071C16.0976 15.3166 16.0976 14.6834 15.7071 14.2929L11.8554 10.4424C11.8200 10.4062 11.7822 10.3734 11.7422 10.3439ZM12 6.5C12 9.53757 9.53757 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5Z" fill="#86868b"/>
-              </svg>
+              <Icon name="search" size={16} color="#86868b" />
             </span>
             <input 
               type="text" 
@@ -328,16 +325,13 @@ function App() {
               className="search-input"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              onKeyPress={handleSearchKeyPress}
+              onKeyDown={handleSearchKeyPress}
               onFocus={() => {
                 if (searchResults.length > 0) {
                   setShowSearchResults(true)
                 }
               }}
-              onBlur={() => {
-                // Delay to allow click on results
-                setTimeout(() => setShowSearchResults(false), 200)
-              }}
+              onBlur={() => setShowSearchResults(false)}
             />
             {selectedCity && (
               <button
@@ -345,11 +339,11 @@ function App() {
                 className="clear-search-button"
                 title="Clear search"
               >
-                ✕
+                <Icon name="close" size={12} />
               </button>
             )}
             {showSearchResults && searchResults.length > 0 && (
-              <div className="search-results">
+              <div className="search-results" onMouseDown={(e) => e.preventDefault()}>
                 {searchResults.map((location, idx) => (
                   <div
                     key={idx}
@@ -357,7 +351,7 @@ function App() {
                     onClick={() => handleSelectLocation(location)}
                   >
                     <span className="result-icon">
-                      {location.type === 'city' ? '🏙️' : location.type === 'district' ? '📍' : '🏘️'}
+                      <Icon name={location.type === 'city' ? 'city' : location.type === 'district' ? 'district' : 'village'} size={20} color="#16a34a" />
                     </span>
                     <div className="result-info">
                       <span className="result-name">{location.name}</span>
@@ -377,7 +371,7 @@ function App() {
               // Allow default behavior (phone call)
             }}
           >
-            <span className="emergency-call-icon">📞</span>
+            <span className="emergency-call-icon"><Icon name="phone" size={18} /></span>
             <span className="emergency-call-text">Emergency Call</span>
           </a>
         </div>
@@ -385,12 +379,24 @@ function App() {
 
       <div className="app-container">
         <main className={`map-container ${checkpointMode ? 'checkpoint-mode' : ''}`}>
-          <aside className="left-panel">
+          <aside className={`left-panel ${layerPanelOpen ? '' : 'collapsed'}`}>
+            <button
+              className="sheet-handle"
+              onClick={() => setLayerPanelOpen(open => !open)}
+              aria-expanded={layerPanelOpen}
+            >
+              Layers &amp; stats
+            </button>
             <LayerControls
               layers={layers}
               onToggleLayer={toggleLayer}
             />
+            <DistrictDashboard
+              title={selectedCity ? selectedCity.name : 'Demo region'}
+              data={filteredData}
+            />
           </aside>
+          <Legend />
           <MapContainer
             ref={mapRef}
             regionData={embeddedData.region}
@@ -413,6 +419,13 @@ function App() {
             mapType={mapType}
             onMapTypeChange={setMapType}
           />
+          {checkActive && isTrackingLocation && userLocation && (
+            <CheckResult
+              risks={nearbyRisks}
+              radius={CHECK_RADIUS_M}
+              onClose={() => setCheckActive(false)}
+            />
+          )}
           <div className="map-controls">
             <button 
               className={`checkpoint-button ${checkpointMode ? 'active' : ''}`}
@@ -421,7 +434,7 @@ function App() {
                 setCheckpointMode(!checkpointMode)
               }}
             >
-              ↓ Add Checkpoints
+              <Icon name="addPin" size={16} /> Add Checkpoints
             </button>
             <button 
               className={`location-button ${isTrackingLocation ? 'active' : ''}`}
@@ -431,7 +444,7 @@ function App() {
               }}
               title={isTrackingLocation ? 'Stop tracking location' : 'Track my location'}
             >
-              📍 {isTrackingLocation ? 'Tracking' : 'My Location'}
+              <Icon name="locate" size={16} /> {isTrackingLocation ? 'Tracking' : 'My Location'}
             </button>
             {isTrackingLocation && userLocation && (
               <button 
@@ -442,7 +455,7 @@ function App() {
                 }}
                 title="Check for risk zones within 100m"
               >
-                🔍 Check Around
+                <Icon name="scan" size={16} /> Check Around
               </button>
             )}
           </div>
@@ -453,11 +466,14 @@ function App() {
             <InfoPanel 
               selectedZone={selectedZone} 
               onClose={() => setSelectedZone(null)}
-              onDeleteCheckpoint={selectedZone.type === 'checkpoint' ? handleDeleteCheckpoint : null}
+              risks={filteredData.risks}
+              onDeleteCheckpoint={selectedZone.kind === 'checkpoint' ? handleDeleteCheckpoint : null}
             />
           </aside>
         )}
       </div>
+
+      <Toast toasts={toasts} onDismiss={dismissToast} />
 
       {showModal && (
         <CheckpointModal

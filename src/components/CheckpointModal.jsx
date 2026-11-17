@@ -39,10 +39,10 @@ function CheckpointModal({ onClose, onSave }) {
               onChange={(e) => setType(e.target.value)}
               className="form-input"
             >
-              <option value="forest">🌱 Forest checkpoint</option>
-              <option value="solar">☀️ Solar checkpoint</option>
-              <option value="risk">⚠️ Risk checkpoint</option>
-              <option value="note">📝 General note</option>
+              <option value="forest">Forest checkpoint</option>
+              <option value="solar">Solar checkpoint</option>
+              <option value="risk">Risk checkpoint</option>
+              <option value="note">General note</option>
             </select>
           </div>
           

@@ -1,10 +1,11 @@
 import React from 'react'
+import Icon from './Icon'
 import './MapTypeSelector.css'
 
 const mapTypes = [
-  { id: 'standard', name: 'Standard', icon: '🗺️' },
-  { id: 'satellite', name: 'Satellite', icon: '🛰️' },
-  { id: 'terrain', name: 'Terrain', icon: '⛰️' }
+  { id: 'standard', name: 'Standard', icon: 'map' },
+  { id: 'satellite', name: 'Satellite', icon: 'satellite' },
+  { id: 'terrain', name: 'Terrain', icon: 'terrain' }
 ]
 
 function MapTypeSelector({ mapType, onMapTypeChange }) {
@@ -17,7 +18,7 @@ function MapTypeSelector({ mapType, onMapTypeChange }) {
           onClick={() => onMapTypeChange(type.id)}
           title={type.name}
         >
-          <span className="map-type-icon">{type.icon}</span>
+          <span className="map-type-icon"><Icon name={type.icon} size={20} /></span>
           <span className="map-type-name">{type.name}</span>
         </button>
       ))}

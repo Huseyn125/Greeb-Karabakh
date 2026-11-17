@@ -1,203 +1,153 @@
-import React from 'react'
+import React, { useMemo } from 'react'
+import Icon, { ICON_COLORS } from './Icon'
+import { evaluateZone, getRecommendation } from '../utils/suitability'
+import { formatDistance } from '../utils/geo'
 import './InfoPanel.css'
+import './extras.css'
 
-function InfoPanel({ selectedZone, onClose, onDeleteCheckpoint }) {
-  const getTypeLabel = (type) => {
-    const labels = {
-      'forest': '🌲 Forest Restoration Zone',
-      'solar': '☀️ Solar Energy Zone',
-      'water': '💧 Water Resource',
-      'risk': '⚠️ Risk Zone',
-      'checkpoint': '📍 Checkpoint'
-    }
-    return labels[type] || type
-  }
+const TYPE_LABELS = {
+  forest: 'Forest Restoration Zone',
+  solar: 'Solar Energy Zone',
+  water: 'Water Resource',
+  risk: 'Risk Zone',
+  checkpoint: 'Checkpoint'
+}
 
-  const getDroughtRiskColor = (risk) => {
-    switch(risk) {
-      case 'low': return '#3b82f6'
-      case 'medium': return '#f97316'
-      case 'high': return '#ef4444'
-      default: return '#6b7280'
-    }
-  }
+const DROUGHT_COLORS = { low: '#3b82f6', medium: '#f97316', high: '#ef4444' }
 
-  const getRecommendation = (type, zone) => {
-    if (type === 'risk') {
-      return 'This area should be avoided until proper clearance and safety measures are implemented.'
-    }
-    
-    if (type === 'forest') {
-      if (zone.water_nearby && zone.soil === 'fertile') {
-        return 'Suitable for forest restoration 🌱'
-      }
-      if (zone.water_nearby) {
-        return 'Moderately suitable for forest restoration - consider soil improvement'
-      }
-      return 'Additional environmental assessment required - water access needed'
-    }
-    
-    if (type === 'solar') {
-      if (zone.sun_days > 260) {
-        return 'Highly recommended for solar power installation ☀️'
-      }
-      if (zone.sun_days > 250) {
-        return 'Suitable for solar power installation'
-      }
-      return 'Moderate solar potential - consider alternative locations'
-    }
-    
-    if (type === 'water') {
-      if (zone.drought_risk === 'low') {
-        return 'Reliable water source - suitable for development projects'
-      }
-      if (zone.drought_risk === 'medium') {
-        return 'Water availability may vary - monitor conditions'
-      }
-      return 'High drought risk - water conservation measures required'
-    }
+function Detail({ label, children, color }) {
+  return (
+    <div className="detail-item">
+      <span className="detail-label">{label}</span>
+      <span className="detail-value" style={color ? { color } : undefined}>{children}</span>
+    </div>
+  )
+}
 
-    if (type === 'checkpoint') {
-      return `Checkpoint created: ${new Date(zone.timestamp).toLocaleString()}`
-    }
-    
-    return 'Additional environmental assessment required'
-  }
+function Suitability({ evaluation }) {
+  const { score, level, factors, penalty, nearRisks } = evaluation
+  return (
+    <div className="suitability" style={{ '--c': level.color }}>
+      <div className="suitability-head">
+        <span>Suitability</span>
+        <div className="suitability-score">
+          {score}<small> / 100 · {level.label}</small>
+        </div>
+      </div>
+      <div className="score-bar" role="progressbar" aria-valuenow={score} aria-valuemin={0} aria-valuemax={100}>
+        <div style={{ width: `${score}%` }} />
+      </div>
+      <ul className="factor-list">
+        {factors.map((f) => (
+          <li key={f.label}>
+            <span>{f.label}</span>
+            <span className="pts">{f.points}/{f.max}</span>
+          </li>
+        ))}
+        {penalty > 0 && (
+          <li className="penalty">
+            <span>
+              Nearby risks ({nearRisks.length}, closest {formatDistance(nearRisks[0].distance)})
+            </span>
+            <span className="pts">−{penalty}</span>
+          </li>
+        )}
+      </ul>
+    </div>
+  )
+}
+
+function InfoPanel({ selectedZone, onClose, onDeleteCheckpoint, risks = [] }) {
+  const kind = selectedZone?.kind
+
+  const evaluation = useMemo(
+    () => (selectedZone ? evaluateZone(kind, selectedZone, risks) : null),
+    [kind, selectedZone, risks]
+  )
 
   if (!selectedZone) {
     return null
   }
 
-  const { type } = selectedZone
+  const zone = selectedZone
 
   return (
     <div className="info-panel">
       <div className="info-panel-header">
         <h2>Zone Details</h2>
-        <button className="close-button" onClick={onClose}>✕</button>
+        <button className="close-button" onClick={onClose} aria-label="Close"><Icon name="close" size={16} /></button>
       </div>
-      
+
       <div className="info-panel-content">
         <div className="zone-header">
-          <h3>{selectedZone.name || selectedZone.title || selectedZone.type}</h3>
-          <span className="zone-type">{getTypeLabel(type)}</span>
+          <h3>{zone.name || zone.title || zone.type}</h3>
+          <span className="zone-type with-icon">
+            <Icon name={kind === 'checkpoint' ? 'pin' : kind} size={14} color={ICON_COLORS[kind]} />
+            {TYPE_LABELS[kind] || kind}
+          </span>
         </div>
-      
-        {type === 'forest' && (
+
+        {evaluation && <Suitability evaluation={evaluation} />}
+
+        {kind === 'forest' && (
           <div className="zone-details">
-            <div className="detail-item">
-              <span className="detail-label">Area:</span>
-              <span className="detail-value">{selectedZone.area} hectares</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Soil Type:</span>
-              <span className="detail-value">{selectedZone.soil}</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Water Nearby:</span>
-              <span className="detail-value">{selectedZone.water_nearby ? 'Yes' : 'No'}</span>
-            </div>
+            <Detail label="Area:">{zone.area} hectares</Detail>
+            <Detail label="Soil Type:">{zone.soil}</Detail>
+            <Detail label="Water Nearby:">{zone.water_nearby ? 'Yes' : 'No'}</Detail>
           </div>
         )}
-        
-        {type === 'solar' && (
+
+        {kind === 'solar' && (
           <div className="zone-details">
-            <div className="detail-item">
-              <span className="detail-label">Potential:</span>
-              <span className="detail-value highlight">
-                {selectedZone.sun_days > 260 ? 'High' : selectedZone.sun_days > 250 ? 'Medium' : 'Low'}
-              </span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Area:</span>
-              <span className="detail-value">15 hectares</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Status:</span>
-              <span className="detail-value">Under Planning</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Sunny Days:</span>
-              <span className="detail-value">{selectedZone.sun_days}/year</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Distance to Grid:</span>
-              <span className="detail-value">{selectedZone.distance_to_grid} km</span>
-            </div>
+            <Detail label="Sunny Days:">{zone.sun_days}/year</Detail>
+            <Detail label="Distance to Grid:">{zone.distance_to_grid} km</Detail>
           </div>
         )}
-        
-        {type === 'water' && (
+
+        {kind === 'water' && (
           <div className="zone-details">
-            <div className="detail-item">
-              <span className="detail-label">Resource Type:</span>
-              <span className="detail-value">{selectedZone.type}</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Drought Risk:</span>
-              <span className="detail-value" style={{ color: getDroughtRiskColor(selectedZone.drought_risk) }}>
-                {selectedZone.drought_risk}
-              </span>
-            </div>
+            <Detail label="Resource Type:"><span style={{ textTransform: 'capitalize' }}>{zone.type}</span></Detail>
+            <Detail label="Drought Risk:" color={DROUGHT_COLORS[zone.drought_risk]}>{zone.drought_risk}</Detail>
           </div>
         )}
-        
-        {type === 'risk' && (
+
+        {kind === 'risk' && (
           <div className="zone-details">
-            <div className="detail-item">
-              <span className="detail-label">Danger Level:</span>
-              <span className="detail-value" style={{ color: '#ef4444' }}>{selectedZone.danger_level}</span>
-            </div>
-            {selectedZone.description && (
-              <div className="detail-item">
-                <span className="detail-label">Description:</span>
-                <span className="detail-value">{selectedZone.description}</span>
-              </div>
-            )}
+            <Detail label="Hazard:"><span style={{ textTransform: 'capitalize' }}>{zone.type}</span></Detail>
+            <Detail label="Danger Level:" color="#ef4444">{zone.danger_level}</Detail>
+            {zone.description && <Detail label="Description:">{zone.description}</Detail>}
           </div>
         )}
-        
-        {type === 'checkpoint' && (
+
+        {kind === 'checkpoint' && (
           <div className="zone-details">
-            <div className="detail-item">
-              <span className="detail-label">Note:</span>
-              <span className="detail-value">{selectedZone.note || 'No additional notes'}</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Created:</span>
-              <span className="detail-value">{new Date(selectedZone.timestamp).toLocaleString()}</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Location:</span>
-              <span className="detail-value">{selectedZone.lat.toFixed(4)}, {selectedZone.lng.toFixed(4)}</span>
-            </div>
+            <Detail label="Note:">{zone.note || 'No additional notes'}</Detail>
+            <Detail label="Created:">{new Date(zone.timestamp).toLocaleString()}</Detail>
+            <Detail label="Location:">{zone.lat.toFixed(4)}, {zone.lng.toFixed(4)}</Detail>
             {onDeleteCheckpoint && (
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'center', 
-                alignItems: 'center',
-                marginTop: '1.5rem',
-                width: '100%'
-              }}>
-                <button 
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1.5rem', width: '100%' }}>
+                <button
                   className="delete-checkpoint-button"
                   onClick={() => {
                     if (window.confirm('Are you sure you want to delete this checkpoint?')) {
-                      onDeleteCheckpoint(selectedZone.id)
+                      onDeleteCheckpoint(zone.id)
                       onClose()
                     }
                   }}
                 >
-                  🗑️ Delete
+                  <Icon name="trash" size={16} /> Delete
                 </button>
               </div>
             )}
           </div>
         )}
-        
-        <div className={type === 'risk' ? 'warning' : 'recommendation'}>
-          <strong>{type === 'risk' ? '⚠️ Warning:' : '💡 Recommendation:'}</strong>{' '}
-          {getRecommendation(type, selectedZone)}
+
+        <div className={kind === 'risk' ? 'warning' : 'recommendation'}>
+          <strong className="with-icon">
+            <Icon name={kind === 'risk' ? 'warning' : 'tip'} size={16} color={kind === 'risk' ? '#ef4444' : '#16a34a'} />
+            {kind === 'risk' ? 'Warning:' : 'Recommendation:'}
+          </strong>{' '}
+          {getRecommendation(kind, zone, evaluation)}
         </div>
       </div>
     </div>
@@ -205,4 +155,3 @@ function InfoPanel({ selectedZone, onClose, onDeleteCheckpoint }) {
 }
 
 export default InfoPanel
-
